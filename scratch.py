@@ -6,8 +6,15 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # image_path = '2000-2003-Gold-Nissan-Maxima.jpg'
-# image_path = '2001-2006-Blue-Chrysler-Sebring-Convertible.jpg'
-image_path = '2005-2006-Burgundy-Honda-CRV.jpg'
+image_path = '2001-2006-Blue-Chrysler-Sebring-Convertible.jpg'
+# image_path = '2005-2006-Burgundy-Honda-CRV.jpg'
+
+model_id = 'amazon.nova-pro-v1:0'
+model_id = 'anthropic.claude-3-7-sonnet-20250219-v1:0'
+model_id = 'anthropic.claude-3-5-sonnet-20241022-v2:0'
+model_id = 'meta.llama3-2-11b-instruct-v1:0'
+model_id = 'meta.llama3-2-90b-instruct-v1:0'
+
 with open(image_path, 'rb') as image_file:
     image_data = base64.b64encode(image_file.read()).decode('utf-8')
 
@@ -54,7 +61,7 @@ session = boto3.Session(aws_access_key_id = os.getenv("AWS_ACCESS_KEY"),
 
 bedrock_runtime = session.client("bedrock-runtime")
 response = bedrock_runtime.invoke_model(
-    modelId="amazon.nova-pro-v1:0",
+    modelId=model_id,
     body=json.dumps(request),
     contentType="application/json",
     accept="application/json"
