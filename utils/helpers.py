@@ -1,4 +1,59 @@
 from typing import List, Optional, Any
+import boto3
+import os
+from dotenv import load_dotenv
+import time
+load_dotenv()
+
+def _list_models(byOutputModality: Optional[str] = None,
+                 byProvider: Optional[str] = None) -> None:
+    """
+    Function to list all models available in the session.
+    
+    Parameters:
+        byOutputModality (Optional[str]): Filter models by output modality, 'TEXT'|'IMAGE'|'EMBEDDING'.
+        byProvider (Optional[str]): Filter models by provider.
+    
+    Returns:
+        None
+    """
+
+    AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY")
+    AWS_SECRET_KEY = os.getenv("AWS_SECRET_KEY")
+    if not AWS_ACCESS_KEY or not AWS_SECRET_KEY:
+        raise ValueError("AWS_ACCESS_KEY and AWS_SECRET_KEY must be set in the environment variables.")
+    
+    session = boto3.Session(aws_access_key_id=AWS_ACCESS_KEY,
+                            aws_secret_access_key=AWS_SECRET_KEY,
+                            region_name='us-east-1')
+    if not session:
+        raise ValueError("Failed to create a Boto3 session. Check your AWS credentials and region.")
+    
+    bedrock = session.client('bedrock')
+    if byOutputModality and byProvider:
+        response = bedrock.list_foundation_models(
+            byOutputModality=byOutputModality,
+            byProvider=byProvider
+        )
+    elif byOutputModality or byProvider:
+        if byOutputModality:
+            response = bedrock.list_foundation_models(
+                byOutputModality=byOutputModality
+            )
+        else:
+            response = bedrock.list_foundation_models(
+                byProvider=byProvider
+            )
+    else:
+        response = bedrock.list_foundation_models()
+    
+    if 'modelSummaries' not in response:
+        raise ValueError("No models found in the response. Check your AWS credentials and permissions.")
+    
+    for model in response['modelSummaries']:
+        print(f"Provider name: {model['providerName']}\nModel Name: {model['modelName']}\nModel ID: {model['modelId']}")
+        print(f"Input Modalities: {model['inputModalities']}\nOutput Modalities: {model['outputModalities']}")
+        print("-" * 30)
 
 def list_obj_s3(s3_client: Any,
                 bucket_name: Optional[str],
@@ -32,3 +87,70 @@ def list_obj_s3(s3_client: Any,
                 pdf_list.append(key)
 
     return pdf_list
+
+def create_input_jsonl(s3_client: Any,
+                        bucket_name: str,
+                        folder_name: str,
+                        system_prompt: str) -> None:
+    """
+    Function to create input.jsonl file for invoking the model. Check if the input.jsonl file already exists in the S3 bucket first.
+
+    Parameters:
+        s3_client (Any): S3 client object
+        bucket_name (str): Name of S3 bucket where concerned docs are present.
+        folder_name (str): Name of folder in which images are present.
+        system_prompt (str): System prompt for the model.
+
+    Returns:
+        None
+    """
+    
+    list_of_images = list_obj_s3(s3_client=s3_client,
+                                 bucket_name=bucket_name,
+                                 folder_name=folder_name)
+
+    s3_image_list = []
+    for image_filename in list_of_images:
+        temp = {
+            'image': {
+                'format': 'jpg',
+                'source': {
+                    's3Uri': f's3://{bucket_name}/{image_filename}'
+                }
+            }
+        }
+        s3_image_list.append(temp)
+
+    input_jsonl_file = {
+        'modelInput': {
+            'anthropic_version': 'bedrock-2023-05-31',
+            "system": system_prompt,
+            'messages': [
+                {
+                    'role': 'user',
+                    'content': s3_image_list
+                }
+            ]
+        }
+    }
+
+    with open('input.jsonl', 'w') as f:
+        f.write(f"{input_jsonl_file}\n")
+
+def poll_invocation_job(bedrock: Any,
+                        jobArn: str):
+    """Function to poll the status of the model invocation job.
+
+     Parameters:
+         bedrock (Any): Bedrock client object.
+         jobArn (str): ARN of the model invocation job.
+
+    Returns:
+         str: Status of the job.
+    """
+    while True:
+        status = bedrock.get_model_invocation_job(jobIdentifier=jobArn)['status']
+        print(f"Status: {status}")
+        if input("Quit? (y/n): ").lower() == 'y':
+            break
+        time.sleep(5)

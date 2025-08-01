@@ -2,7 +2,7 @@ import sys
 import boto3
 import os
 from dotenv import load_dotenv
-from utils.helpers import list_obj_s3, create_input_jsonl
+from utils.helpers import list_obj_s3, create_input_jsonl, poll_invocation_job
 load_dotenv()
 
 AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY")
@@ -10,9 +10,12 @@ AWS_SECRET_KEY = os.getenv("AWS_SECRET_KEY")
 if not AWS_ACCESS_KEY or not AWS_SECRET_KEY:
     raise ValueError("AWS_ACCESS_KEY and AWS_SECRET_KEY must be set in the environment variables.")
 
-s3_client = boto3.client('s3', aws_access_key_id=AWS_ACCESS_KEY,
-                         aws_secret_access_key=AWS_SECRET_KEY,
-                         region_name='us-east-1')
+session = boto3.Session(aws_access_key_id=AWS_ACCESS_KEY,
+                        aws_secret_access_key=AWS_SECRET_KEY
+                        )
+bedrock = session.client('bedrock', region_name='us-west-2')
+
+s3_client = session.client('s3', region_name='us-east-1')
 
 BUCKET_NAME = 'signal-8-data-creation-testing'
 FOLDER_NAME = 'test_images'
@@ -38,3 +41,35 @@ if not input_jsonl_yes_no:
 
 else:
     print("\x1b[32mInput jsonl file already exists. No need to create a new one.\x1b[0m")
+
+inputDataConfig = {
+    's3InputDataConfig': {
+        's3Uri': f's3://{BUCKET_NAME}/input.jsonl'
+    }
+}
+
+outputDataConfig = {
+    's3OutputDataConfig': {
+        's3Uri': f's3://{BUCKET_NAME}/output/'
+    }
+}
+
+model_id = 'anthropic.claude-3-5-sonnet-20241022-v2:0'
+# model_id = 'anthropic.claude-3-7-sonnet-20250219-v1:0'
+# model_id = 'anthropic.claude-sonnet-4-20250514-v1:0'
+
+print("\x1b[34mStarting model invocation job...\x1b[0m")
+
+response = bedrock.create_model_invocation_job(
+    jobName='car-image-analysis-job',
+    modelId=model_id,
+    inputDataConfig=inputDataConfig,
+    outputDataConfig=outputDataConfig,
+    roleArn='arn:aws:iam::381492026108:role/BatchInferenceJobRole',  # Replace with your IAM role ARN
+)
+print(f"Model invocation job created with ARN: {response['jobArn']}")
+print("\x1b[31mPolling for job completion...\x1b[0m")
+poll_invocation_job(bedrock=bedrock, jobArn=response['jobArn'])
+print("\x1b[32mJob completed. Fetching results...\x1b[0m")
+with open('response.json', 'w') as f:
+    f.write(str(response))
