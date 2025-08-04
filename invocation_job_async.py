@@ -13,7 +13,7 @@ if not AWS_ACCESS_KEY or not AWS_SECRET_KEY:
 session = boto3.Session(aws_access_key_id=AWS_ACCESS_KEY,
                         aws_secret_access_key=AWS_SECRET_KEY
                         )
-bedrock = session.client('bedrock', region_name='us-west-2')
+bedrock = session.client('bedrock', region_name='us-east-1')
 
 s3_client = session.client('s3', region_name='us-east-1')
 

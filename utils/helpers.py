@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 import time
 load_dotenv()
 
-def _list_models(byOutputModality: Optional[str] = None,
+def _list_foundational_models(byOutputModality: Optional[str] = None,
                  byProvider: Optional[str] = None) -> None:
     """
     Function to list all models available in the session.
@@ -53,6 +53,30 @@ def _list_models(byOutputModality: Optional[str] = None,
     for model in response['modelSummaries']:
         print(f"Provider name: {model['providerName']}\nModel Name: {model['modelName']}\nModel ID: {model['modelId']}")
         print(f"Input Modalities: {model['inputModalities']}\nOutput Modalities: {model['outputModalities']}")
+        print("-" * 30)
+
+def _list_inference_profiles():
+    """
+    Function to list all inference profiles available in the session.
+    
+    Returns:
+        None
+    """
+    
+    AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY")
+    AWS_SECRET_KEY = os.getenv("AWS_SECRET_KEY")
+    if not AWS_ACCESS_KEY or not AWS_SECRET_KEY:
+        raise ValueError("AWS_ACCESS_KEY and AWS_SECRET_KEY must be set in the environment variables.")
+    session = boto3.Session(aws_access_key_id=AWS_ACCESS_KEY,
+                            aws_secret_access_key=AWS_SECRET_KEY,
+                            region_name='us-east-1')
+    if not session:
+        raise ValueError("Failed to create a Boto3 session. Check your AWS credentials and region.")
+    
+    bedrock = session.client('bedrock')
+    response = bedrock.list_inference_profiles()
+    for profile in response.get('inferenceProfileSummaries', []):
+        print(f"Profile Name: {profile['inferenceProfileName']}\nProfile ID: {profile['inferenceProfileId']}")
         print("-" * 30)
 
 def list_obj_s3(s3_client: Any,
