@@ -190,19 +190,3 @@ response_df.to_csv("response.csv", index=False)
     # input()
 # print(model_response["output"]["message"]["content"][0]["text"])
 
-
-#%%
-import pandas as pd
-
-response_df = pd.read_csv("response.csv")
-response_df.head()
-
-files_list = sorted(os.listdir('Data'))
-# Filter out only the images (assuming they are .jpg files)
-images = [image for image in files_list if image.endswith('.jpg')]
-image_names = [os.path.splitext(image)[0] for image in images]
-
-response_df.insert(0, "File_name", image_names)
-
-response_df.head()
-# %%
