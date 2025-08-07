@@ -3,3 +3,7 @@ python-dotenv
 tqdm
 pandas
 transformers
+torch
+datasets
+pillow
+accelerate

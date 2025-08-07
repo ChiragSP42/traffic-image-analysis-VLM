@@ -172,6 +172,7 @@ print(f"Failed to record {counter_years} years, {counter_colors} colors, \
        and {counter_car_type} car types.")
 
 response_df = pd.DataFrame()
+response_df["File_name"] = images[:counter_processed]
 response_df["Truth_years"] = years[:counter_processed]
 response_df["Response_years"] = response_years
 response_df["Truth_colors"] = colors[:counter_processed]
@@ -183,10 +184,16 @@ response_df["Response_models"] = response_models
 response_df["Response_car_type"] = response_car_type
 response_df["Response_identifiers"] = response_identifiers
 
-response_df.to_csv("response.csv", index=False)
-    # print(model_response_body["content"][0]["text"])
-    # print()
-    # print(json.dumps(model_response, indent=2))
-    # input()
-# print(model_response["output"]["message"]["content"][0]["text"])
+response_df.to_csv("response_with_filenames.csv", index=False)
+# Create input.csv file for the next step
+input_df = response_df.loc[:, ["File_name"]].copy()
+input_df["File_name"] = input_df["File_name"]+".jpg"
 
+input_df["Description"] = "Color: "+response_df["Response_colors"] \
+                        + ", Make: " + response_df["Response_makes"] \
+                        + ", Model: " + response_df["Response_models"] \
+                        + ", Year: " + response_df["Response_years"] \
+                        + ", Car Type: " + response_df["Response_car_type"] \
+                        + ", Unique Identifiers: " + response_df["Response_identifiers"].apply(lambda x: str(x).replace("[", "").replace("]", "").replace("'", ""))
+
+input_df.to_csv("input.csv", index=False)
