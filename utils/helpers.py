@@ -3,6 +3,7 @@ import boto3
 import os
 from dotenv import load_dotenv
 import time
+import json
 load_dotenv()
 
 def _list_foundational_models(byOutputModality: Optional[str] = None,
@@ -78,6 +79,18 @@ def _list_inference_profiles():
     for profile in response.get('inferenceProfileSummaries', []):
         print(f"Profile Name: {profile['inferenceProfileName']}\nProfile ID: {profile['inferenceProfileId']}")
         print("-" * 30)
+
+def _local_or_sagemaker():
+    """
+    Checks if the current Python script is running within an Amazon SageMaker environment or locally.
+    """
+    # As a fallback, check for other common SageMaker environment variables
+    sagemaker_env_vars = ['SM_CHANNEL_TRAIN', 'SM_MODEL_DIR', 'SAGEMAKER_PROGRAM']
+    for var in sagemaker_env_vars:
+        if var in os.environ:
+            return True
+
+    return False
 
 def list_obj_s3(s3_client: Any,
                 bucket_name: Optional[str],

@@ -7,3 +7,4 @@ torch
 datasets
 pillow
 accelerate
+python-pptx
