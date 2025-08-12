@@ -7,63 +7,144 @@ from torch import nn
 from transformers import CLIPProcessor, CLIPModel, CLIPConfig, TrainingArguments, Trainer
 from dotenv import load_dotenv
 from utils.helpers import _local_or_sagemaker
+from PIL import Image
+from io import BytesIO
+from huggingface_hub import login
 load_dotenv()
 
-RUNNING_LOCALLY = False
+def main():
 
-if not _local_or_sagemaker():
-    RUNNING_LOCALLY = True
+    def load_images_from_s3(image_file_name):
+        """
+        Function to retrieve image from S3.
+        """
 
-AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY")
-AWS_SECRET_KEY = os.getenv("AWS_SECRET_KEY")
-HUGGINGFACE_ACCESS_TOKEN = os.getenv("HUGGINGFACE_ACCESS_TOKEN")
+        s3_client = session.client("s3")
 
-if not RUNNING_LOCALLY:
+        response = s3_client.get_object(Bucket=S3_BUCKET,
+                                        Key=f"{IMAGE_FOLDER}/{image_file_name}")
+        image_bytes = response["Body"].read()
+        image = Image.open(BytesIO(image_bytes)).convert("RGB")
+        return image
+
+    def preprocess(examples):
+        images = [load_images_from_s3(image) for image in examples["File_name"]]
+
+        preprocessed = processor(text=examples["Description"],
+                                images=images,
+                                padding='max_length',
+                                return_tensors='pt',
+                                truncation=True)
+
+        return {"input_ids": preprocessed['input_ids'],
+                "attention_mask": preprocessed['attention_mask'],
+                "pixel_values": preprocessed['pixel_values']
+            }
+
+    AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY")
+    AWS_SECRET_KEY = os.getenv("AWS_SECRET_KEY")
+    HUGGINGFACE_ACCESS_TOKEN = os.getenv("HUGGINGFACE_ACCESS_TOKEN")
+    MODEL_ID = "openai/clip-vit-base-patch32"
     S3_BUCKET = 'signal-8-data-creation-testing'
-    IMAGE_FOLDER = 'test_images'
+    INPUT_FILE = 'input.csv'
+    IMAGE_FOLDER = 'Data'
+    RUNNING_LOCALLY = False
 
-session = boto3.Session(aws_access_key_id=AWS_ACCESS_KEY,
-                        aws_secret_access_key=AWS_SECRET_KEY,
-                        region_name='us-east-1')
+    if not _local_or_sagemaker():
+        print("\x1b[32mRunning locally\x1b[0m")
+        RUNNING_LOCALLY = True
+    else:
+        print("\x1b[32mRunning on SageMaker\x1b[0m")
 
-if RUNNING_LOCALLY:
-    dataset = load_dataset("csv", data_files='input.csv')["train"]
-else:
-    dataset =load_dataset("csv", data_files=f"{S3_BUCKET}")
+    session = boto3.Session(aws_access_key_id=AWS_ACCESS_KEY,
+                            aws_secret_access_key=AWS_SECRET_KEY,
+                            region_name='us-east-1')
 
-class CLIPForContrastiveLearning(CLIPModel):
-    def __init__(self, config):
-        super().__init__(config)
-        self.loss_fn = nn.CrossEntropyLoss()
+    class CLIPForContrastiveLearning(CLIPModel):
+        def __init__(self, config):
+            super().__init__(config)
+            self.loss_fn = nn.CrossEntropyLoss()
 
-    def forward(self, input_ids=None, attention_mask=None, pixel_values=None, ground_truth=None):
-        outputs = super().forward(input_ids=input_ids,
-                                  attention_mask=attention_mask,
-                                  pixel_values=pixel_values,
-                                  return_dict=True)
-        
-        logits_per_image = outputs.logits_per_image
-        logits_per_text = outputs.logits_per_text
+        def forward(self, input_ids=None, attention_mask=None, pixel_values=None, ground_truth=None): # type: ignore
+            outputs = super().forward(input_ids=input_ids,
+                                    attention_mask=attention_mask,
+                                    pixel_values=pixel_values,
+                                    return_dict=True) # type: ignore
+            
+            logits_per_image = outputs.logits_per_image
+            logits_per_text = outputs.logits_per_text
 
-        
+            
 
-        if not ground_truth:
-            ground_truth = torch.arange(logits_per_image.size(0), device=logits_per_image.device)
+            if not ground_truth:
+                ground_truth = torch.arange(logits_per_image.size(0), device=logits_per_image.device)
 
-        loss_image = self.loss_fn(logits_per_image, ground_truth)
-        loss_text = self.loss_fn(logits_per_text, ground_truth)
-        loss = (loss_image + loss_text) / 2
+            loss_image = self.loss_fn(logits_per_image, ground_truth)
+            loss_text = self.loss_fn(logits_per_text, ground_truth)
+            loss = (loss_image + loss_text) / 2
 
-        if self.training:
             return {"loss": loss, **outputs}
-        else:
-            return outputs
-        
-config = CLIPConfig.from_pretrained("openai/clip-vit-base-patch32", token = HUGGINGFACE_ACCESS_TOKEN)        
-model = CLIPForContrastiveLearning.from_pretrained("openai/clip-vit-base-patch32", config = config, token = HUGGINGFACE_ACCESS_TOKEN)
-processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32", token = HUGGINGFACE_ACCESS_TOKEN)
+            
+    print("\x1b[31mInitializing CLIP model and processor\x1b[0m")    
+    login(token=HUGGINGFACE_ACCESS_TOKEN)    
+    config = CLIPConfig.from_pretrained(MODEL_ID)        
+    model = CLIPForContrastiveLearning.from_pretrained(MODEL_ID, config = config)
+    processor = CLIPProcessor.from_pretrained(MODEL_ID)
+    print("\x1b[32mInitialized CLIP model and processor\x1b[0m")        
 
+    print("\x1b[31mLoading dataset\x1b[0m")
+    if RUNNING_LOCALLY:
+        dataset = load_dataset("csv", data_files=INPUT_FILE)["train"]
+    else:
+        dataset = load_dataset("csv", data_files=f"/opt/ml/input/data/train/{INPUT_FILE}")["train"]
+    print("\x1b[32mSuccessfully loaded dataset\x1b[0m")
 
+    split = dataset.train_test_split(train_size = 0.8) # type: ignore
+    train_split, test_split = split["train"], split["test"]
 
+    print("\x1b[31mMapping preprocessing function to dataset\x1b[0m")
+    train_dataset = train_split.map(preprocess, batched = True, batch_size = 4)
+    test_dataset = test_split.map(preprocess, batched = True, batch_size = 4)
 
+    train_dataset.set_format(type='torch',
+                             columns=['input_ids', 'attention_mask', 'pixel_values'])
+    test_dataset.set_format(type='torch',
+                            columns=['input_ids', 'attention_mask', 'pixel_values'])
+    print("\x1b[32mMapped dataset with preprocessfunction\x1b[0m")
+    
+    output_dir = '/opt/ml/model'
+    os.makedirs(output_dir, exist_ok=True)
 
+    print("\x1b[31mSetting up Training Arguments\x1b[0m")
+    training_args = TrainingArguments(
+            output_dir=output_dir,  # SageMaker default model directory for saving artifacts
+            learning_rate=2e-5,
+            num_train_epochs=5,
+            eval_strategy="epoch",
+            save_strategy="epoch",
+            seed=42,
+            fp16=True,  # use mixed precision if supported
+            load_best_model_at_end=False,
+        )
+
+    print("\x1b[31mSetting up Trainer\x1b[0m")
+    trainer = Trainer(
+            model=model,
+            args=training_args,
+            train_dataset=train_dataset,
+            eval_dataset=test_dataset,
+        )
+    
+    print("\x1b[31mStarting to train model\x1b[0m")
+    checkpoint_dir = "/opt/ml/model/checkpoint-last"
+
+    if os.path.exists(checkpoint_dir):
+        trainer.train(resume_from_checkpoint=checkpoint_dir)
+    else:
+        trainer.train()
+
+    # Save final model (redundant as Trainer saves models during save_strategy)
+    trainer.save_model("/opt/ml/model")
+
+if __name__ == "__main__":
+    main()

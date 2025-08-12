@@ -74,6 +74,7 @@ def main():
     """
     df = pd.read_csv("response_with_filenames.csv")
     count = 30
+    # Randomly selecting 30 samples from 205 to present.
     rand_indices = random.sample(range(df.shape[0]), count)
     df = df.loc[rand_indices].copy()
 
