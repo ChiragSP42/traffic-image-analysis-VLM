@@ -19,7 +19,15 @@ Optional, but if you're running code locally, especially the fine_tuning.py. Set
 ## Dataset creation
 
 For now a sync job of invoking a multimodal LLM to generate a detailed description of the car with the help of a curated system prompt.
-TODO: Batch inference job to create a dataset in the order of 10,000 of images.
+
+***TODO: Batch inference job to create a dataset in the order of 10,000 of images.***
+
+
 Image file names and the corresponding text description are saved offline as a csv file. This csv file is to be used later for fine tuning.
 
-## 
+## Fine tuning
+
+You can either run the `fine_tuning.py` script directly (of course you need to alter the directory paths to your required paths) or run it through a training job using sagemaker. Edit the `OUTPUT_DIR` and `CHECKPOINT_DIR` according to your needs if you're not using a training job.
+
+## Miscellneaous
+

@@ -18,7 +18,7 @@ bedrock = session.client('bedrock', region_name='us-east-1')
 s3_client = session.client('s3', region_name='us-east-1')
 
 BUCKET_NAME = 'signal-8-data-creation-testing'
-FOLDER_NAME = 'test_images'
+FOLDER_NAME = 'Data'
 # First check if input.jsonl file already exits.
 input_jsonl_yes_no = list_obj_s3(s3_client=s3_client,
                                  bucket_name=BUCKET_NAME,
@@ -43,8 +43,9 @@ else:
     print("\x1b[32mInput jsonl file already exists. No need to create a new one.\x1b[0m")
 
 inputDataConfig = {
-    's3InputDataConfig': {
-        's3Uri': f's3://{BUCKET_NAME}/input.jsonl'
+    "s3InputDataConfig": {
+        "s3InputFormat": "JSONL",
+        "s3Uri": f"s3://{BUCKET_NAME}/input.jsonl"
     }
 }
 
@@ -54,14 +55,14 @@ outputDataConfig = {
     }
 }
 
-model_id = 'anthropic.claude-3-5-sonnet-20241022-v2:0'
+model_id = 'us.anthropic.claude-3-5-sonnet-20241022-v2:0'
 # model_id = 'anthropic.claude-3-7-sonnet-20250219-v1:0'
 # model_id = 'anthropic.claude-sonnet-4-20250514-v1:0'
 
 print("\x1b[34mStarting model invocation job...\x1b[0m")
 
 response = bedrock.create_model_invocation_job(
-    jobName='car-image-analysis-job',
+    jobName='car-image-analysis-job-200-images',
     modelId=model_id,
     inputDataConfig=inputDataConfig,
     outputDataConfig=outputDataConfig,
@@ -69,7 +70,8 @@ response = bedrock.create_model_invocation_job(
 )
 print(f"Model invocation job created with ARN: {response['jobArn']}")
 print("\x1b[31mPolling for job completion...\x1b[0m")
-poll_invocation_job(bedrock=bedrock, jobArn=response['jobArn'])
-print("\x1b[32mJob completed. Fetching results...\x1b[0m")
-with open('response.json', 'w') as f:
-    f.write(str(response))
+status = poll_invocation_job(bedrock=bedrock, jobArn=response['jobArn'])
+if status:
+    print("\x1b[32mJob completed.\x1b[0m")
+else:
+    print("\x1b[31mJob failed.\x1b[0m")

@@ -12,6 +12,30 @@ from io import BytesIO
 from huggingface_hub import login
 load_dotenv()
 
+# Defining GLOBAL VARIABLES
+
+AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY")
+AWS_SECRET_KEY = os.getenv("AWS_SECRET_KEY")
+HUGGINGFACE_ACCESS_TOKEN = os.getenv("HUGGINGFACE_ACCESS_TOKEN")
+MODEL_ID = "openai/clip-vit-base-patch32"
+S3_BUCKET = 'signal-8-data-creation-testing'
+INPUT_FILE = 'input.csv'
+IMAGE_FOLDER = 'Data'
+OUTPUT_DIR = ''
+CHECKPOINT_DIR = ''
+RUNNING_LOCALLY = None
+
+# Are you running the script locally or as a training job.
+if not _local_or_sagemaker():
+    print("\x1b[32mRunning locally\x1b[0m")
+    RUNNING_LOCALLY = True
+    OUTPUT_DIR = 'outputs/model/'
+    CHECKPOINT_DIR = 'outputs/model/checkpoint-last'
+else:
+    OUTPUT_DIR = '/opt/ml/model'
+    CHECKPOINT_DIR = '/opt/ml/model/checkpoint-last'
+    print("\x1b[32mRunning on SageMaker\x1b[0m")
+
 def main():
 
     def load_images_from_s3(image_file_name):
@@ -40,21 +64,6 @@ def main():
                 "attention_mask": preprocessed['attention_mask'],
                 "pixel_values": preprocessed['pixel_values']
             }
-
-    AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY")
-    AWS_SECRET_KEY = os.getenv("AWS_SECRET_KEY")
-    HUGGINGFACE_ACCESS_TOKEN = os.getenv("HUGGINGFACE_ACCESS_TOKEN")
-    MODEL_ID = "openai/clip-vit-base-patch32"
-    S3_BUCKET = 'signal-8-data-creation-testing'
-    INPUT_FILE = 'input.csv'
-    IMAGE_FOLDER = 'Data'
-    RUNNING_LOCALLY = False
-
-    if not _local_or_sagemaker():
-        print("\x1b[32mRunning locally\x1b[0m")
-        RUNNING_LOCALLY = True
-    else:
-        print("\x1b[32mRunning on SageMaker\x1b[0m")
 
     session = boto3.Session(aws_access_key_id=AWS_ACCESS_KEY,
                             aws_secret_access_key=AWS_SECRET_KEY,
@@ -112,12 +121,11 @@ def main():
                             columns=['input_ids', 'attention_mask', 'pixel_values'])
     print("\x1b[32mMapped dataset with preprocessfunction\x1b[0m")
     
-    output_dir = '/opt/ml/model'
-    os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
 
     print("\x1b[31mSetting up Training Arguments\x1b[0m")
     training_args = TrainingArguments(
-            output_dir=output_dir,  # SageMaker default model directory for saving artifacts
+            output_dir=OUTPUT_DIR,  # SageMaker default model directory for saving artifacts
             learning_rate=2e-5,
             num_train_epochs=5,
             eval_strategy="epoch",
@@ -136,10 +144,9 @@ def main():
         )
     
     print("\x1b[31mStarting to train model\x1b[0m")
-    checkpoint_dir = "/opt/ml/model/checkpoint-last"
 
-    if os.path.exists(checkpoint_dir):
-        trainer.train(resume_from_checkpoint=checkpoint_dir)
+    if os.path.exists(CHECKPOINT_DIR):
+        trainer.train(resume_from_checkpoint=CHECKPOINT_DIR)
     else:
         trainer.train()
 

@@ -1,6 +1,7 @@
 from typing import List, Optional, Any
 import boto3
 import os
+import sys
 from dotenv import load_dotenv
 import time
 import json
@@ -146,33 +147,49 @@ def create_input_jsonl(s3_client: Any,
                                  bucket_name=bucket_name,
                                  folder_name=folder_name)
 
-    s3_image_list = []
-    for image_filename in list_of_images:
-        temp = {
-            'image': {
-                'format': 'jpg',
-                'source': {
-                    's3Uri': f's3://{bucket_name}/{image_filename}'
+    input_json_file = []
+    for idx, image_filename in enumerate(list_of_images):
+        content = [
+            {
+                "image": {
+                    "format": "jpg",
+                    "source": {
+                        "s3Uri": f"s3://{bucket_name}/{image_filename}"
+                    }
                 }
             }
-        }
-        s3_image_list.append(temp)
+        ]
 
-    input_jsonl_file = {
-        'modelInput': {
-            'anthropic_version': 'bedrock-2023-05-31',
-            "system": system_prompt,
-            'messages': [
-                {
-                    'role': 'user',
-                    'content': s3_image_list
-                }
-            ]
+        json_obj = {
+            "recordId": idx,
+            "modelInput": {
+                "anthropic_version": "bedrock-2023-05-31",
+                "system": system_prompt,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": content
+                    }
+                ]
+            }
         }
-    }
-
+        input_json_file.append(json_obj)
+    
     with open('input.jsonl', 'w') as f:
-        f.write(f"{input_jsonl_file}\n")
+        for json_obj in input_json_file:
+            f.write(json.dumps(json_obj) + "\n")
+    print("\x1b[32mCreated JSONL file and store local copy as input.jsonl\x1b[0m")
+    
+    # Upload JSONL file to S3.
+    try:
+        print(f"\x1b[31mUploading input.jsonl file to S3 bucket at path {bucket_name}/input.jsonl\x1b[0m")
+        with open('input.jsonl', 'rb') as f:
+            s3_client.put_object(Bucket=bucket_name,
+                                Key='input.jsonl',
+                                Body=f)
+        print("\x1b[32mUploaded file\x1b[0m")
+    except Exception as e:
+        print(e)
 
 def poll_invocation_job(bedrock: Any,
                         jobArn: str):
@@ -185,9 +202,19 @@ def poll_invocation_job(bedrock: Any,
     Returns:
          str: Status of the job.
     """
+    black_flag = True
+    white_flag = False
+    counter = 0
     while True:
         status = bedrock.get_model_invocation_job(jobIdentifier=jobArn)['status']
-        print(f"Status: {status}")
-        if input("Quit? (y/n): ").lower() == 'y':
-            break
+        # print(f"Status: {status}")
+        dots = "." * (counter % 4)
+        sys.stdout.write(f"\r{status}{dots}".ljust(len(status) + 4))
+        sys.stdout.flush()
+        time.sleep(0.5)
+        counter += 1
+        if status == 'Completed':
+            return True
+        elif status == 'Failed':
+            return False
         time.sleep(5)
