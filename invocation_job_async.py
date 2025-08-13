@@ -2,7 +2,11 @@ import sys
 import boto3
 import os
 from dotenv import load_dotenv
-from utils.helpers import list_obj_s3, create_input_jsonl, poll_invocation_job
+from utils.helpers import (
+    list_obj_s3, 
+    create_input_jsonl, 
+    poll_invocation_job,
+    process_batch_inference_output)
 load_dotenv()
 
 AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY")
@@ -19,6 +23,7 @@ s3_client = session.client('s3', region_name='us-east-1')
 
 BUCKET_NAME = 'signal-8-data-creation-testing'
 FOLDER_NAME = 'Data'
+OUTPUT_FOLDER = 'output/'
 # First check if input.jsonl file already exits.
 input_jsonl_yes_no = list_obj_s3(s3_client=s3_client,
                                  bucket_name=BUCKET_NAME,
@@ -51,7 +56,7 @@ inputDataConfig = {
 
 outputDataConfig = {
     's3OutputDataConfig': {
-        's3Uri': f's3://{BUCKET_NAME}/output/'
+        's3Uri': f's3://{BUCKET_NAME}/{OUTPUT_FOLDER}'
     }
 }
 
@@ -60,7 +65,7 @@ model_id = 'us.anthropic.claude-3-5-sonnet-20241022-v2:0'
 print("\x1b[34mStarting model invocation job...\x1b[0m")
 
 response = bedrock.create_model_invocation_job(
-    jobName='car-image-analysis-job-200-images',
+    jobName='car-image-analysis-job-205-images-4',
     modelId=model_id,
     inputDataConfig=inputDataConfig,
     outputDataConfig=outputDataConfig,
@@ -71,5 +76,13 @@ print("\x1b[31mPolling for job completion...\x1b[0m")
 status = poll_invocation_job(bedrock=bedrock, jobArn=response['jobArn'])
 if status:
     print("\x1b[32mJob completed.\x1b[0m")
+    # Extracting the sub-folder name inside output
+    response = list_obj_s3(s3_client=s3_client,
+                               bucket_name=BUCKET_NAME,
+                               folder_name=OUTPUT_FOLDER,
+                               delimiter='/')[0]
+    process_batch_inference_output(s3_client=s3_client,
+                                bucket_name=BUCKET_NAME,
+                                folder_name=response)
 else:
     print("\x1b[31mJob failed.\x1b[0m")

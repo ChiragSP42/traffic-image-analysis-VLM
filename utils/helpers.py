@@ -5,6 +5,7 @@ import sys
 from dotenv import load_dotenv
 import time
 import json
+import base64
 load_dotenv()
 
 def _list_foundational_models(byOutputModality: Optional[str] = None,
@@ -148,22 +149,27 @@ def create_input_jsonl(s3_client: Any,
                                  folder_name=folder_name)
 
     input_json_file = []
-    for idx, image_filename in enumerate(list_of_images):
+    for image_filename in list_of_images:
+        image = s3_client.get_object(Bucket=bucket_name,
+                                        Key=image_filename)
+        image_binary = image["Body"].read()
+        image_bytes = base64.b64encode(image_binary).decode('utf-8')
         content = [
             {
-                "image": {
-                    "format": "jpg",
-                    "source": {
-                        "s3Uri": f"s3://{bucket_name}/{image_filename}"
-                    }
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": "image/jpeg",
+                    "data": image_bytes
                 }
             }
         ]
 
         json_obj = {
-            "recordId": idx,
+            "recordId": os.path.basename(image_filename),
             "modelInput": {
                 "anthropic_version": "bedrock-2023-05-31",
+                "max_tokens": 1024,
                 "system": system_prompt,
                 "messages": [
                     {
@@ -202,8 +208,6 @@ def poll_invocation_job(bedrock: Any,
     Returns:
          str: Status of the job.
     """
-    black_flag = True
-    white_flag = False
     counter = 0
     while True:
         status = bedrock.get_model_invocation_job(jobIdentifier=jobArn)['status']
@@ -218,3 +222,58 @@ def poll_invocation_job(bedrock: Any,
         elif status == 'Failed':
             return False
         time.sleep(5)
+
+def process_batch_inference_output(s3_client: Any,
+                                   bucket_name: str,
+                                   folder_name: str):
+    """
+    Function to post process the jsonl file after batch inference job. The outputs are stored as input.jsonl.out in 
+    the folder mentioned during inference job creation in the S3DataConfig parameter.
+
+    Currently output JSON file is of the format;
+
+    {
+        "output": [
+            {
+                "filename": <recordId>,
+                "identifiers": <text>
+            }
+        ]
+    }
+
+    Parameters:
+        s3_client (Any): S3 client object.
+        bucket_name (str): S3 bucket name.
+        folder_name (str): Folder name containing output file.
+
+    Returns:
+    """
+    print("\x1b[31mProcessing output jsonl file\x1b[0m")
+
+    response_binary = s3_client.get_object(Bucket=bucket_name,
+                                    Key=os.path.join(folder_name, "input.jsonl.out"))["Body"]
+    
+    output_json_list = []
+    
+    for response in response_binary.iter_lines():
+        json_obj = json.loads(response.decode('utf-8'))
+        # print(json.dumps(json.loads(json_obj), indent = 2))
+        text = json_obj["modelOutput"]["content"][0]["text"]
+        record_id = json_obj["recordId"] # Contains the file name which may contain year, color, make, model info
+        output_json = {
+            "filename": record_id,
+            "unique_identifiers": text
+        }
+        output_json_list.append(output_json)
+    
+    output_json = {
+        "output": output_json_list
+    }
+    print("\x1b[32mProcessed JSONl file as a JSON file\x1b[0m")
+    print("\x1b[31mUploading JSON file\x1b[0m")
+    s3_client.put_object(Bucket=bucket_name,
+                         Key=os.path.join(folder_name, "output.json"))
+    print(f"\x1b[32mUploaded JSON file to S3 bucket of same directory {os.path.join(bucket_name, folder_name, 'output.json')}\x1b[0m")
+
+
+    
