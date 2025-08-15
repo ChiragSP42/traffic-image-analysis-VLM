@@ -19,7 +19,7 @@ s3_client = session.client('s3', region_name='us-east-1')
 
 BUCKET_NAME = 'signal-8-data-creation-testing'
 FOLDER_NAME = 'Data'
-OUTPUT_FOLDER = 'output-opus-4-1/'
+OUTPUT_FOLDER = 'output-sonnet-4/'
 # MODEL_ID = 'us.anthropic.claude-3-5-sonnet-20241022-v2:0'
 MODEL_ID = 'us.anthropic.claude-sonnet-4-20250514-v1:0'
 ROLE_ARN = 'arn:aws:iam::381492026108:role/BatchInferenceJobRole'
@@ -103,7 +103,7 @@ batch_inference = BatchInference(bedrock_client=bedrock,
                                  model_id=MODEL_ID,
                                  creation_prompt=creation_prompt,
                                  role_arn = ROLE_ARN,
-                                 job_name='car-analysis-batched-4')
+                                 job_name='car-analysis-batched-5')
 
 
 job_arn = batch_inference.start_batch_inference_job()
@@ -111,3 +111,4 @@ status = batch_inference.poll_invocation_job(jobArn=job_arn)
 # status = True
 if status:
     batch_inference.process_batch_inference_output(local_copy=True)
+

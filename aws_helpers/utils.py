@@ -215,6 +215,8 @@ class BatchInference():
             local_copy (Optional[bool]): Whether you can a local copy as a csv file.
         Returns:
         """
+        OUTPUT_FILENAME = 'created_data'
+
         print("\x1b[31mProcessing output jsonl file\x1b[0m")
 
         list_folders_output = list_obj_s3(s3_client=self.s3_client,
@@ -271,12 +273,12 @@ class BatchInference():
         print(f"Processed: {processed_counter}\nSuccess: {success_counter}\nFailed: {failed_counter}")
         print("\x1b[31mUploading JSON file\x1b[0m")
         self.s3_client.put_object(Bucket=self.bucket_name,
-                            Key=os.path.join(list_folders_output, "created_data.json"),
+                            Key=os.path.join(list_folders_output, f"{OUTPUT_FILENAME}.json"),
                             Body=json.dumps(output_json, indent = 2),
                             ContentType='application/json')
-        print(f"\x1b[32mUploaded JSON file to S3 bucket of same directory {os.path.join(self.bucket_name, list_folders_output, 'created_data.json')}\x1b[0m")
+        print(f"\x1b[32mUploaded JSON file to S3 bucket of same directory {os.path.join(self.bucket_name, list_folders_output, f'{OUTPUT_FILENAME}.json')}\x1b[0m")
 
         if local_copy:
             df = pd.DataFrame(output_json['output'])
-            df.to_csv('created_data.csv', index = False)
+            df.to_csv(f'{OUTPUT_FILENAME}.csv', index = False)
             print("\x1b[32mCreated local copy as csv file\x1b[0m")
