@@ -1,3 +1,6 @@
 # AWS Access key credentials
 AWS_ACCESS_KEY = your access key here
 AWS_SECRET_KEY = your secret key here
+
+# HUGGINGFACE auth token
+HUGGINGFACE_ACCESS_TOKEN = your huggingface access token here.
