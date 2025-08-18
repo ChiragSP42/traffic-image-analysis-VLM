@@ -6,7 +6,7 @@ import torch
 from torch import nn
 from transformers import CLIPProcessor, CLIPModel, CLIPConfig, TrainingArguments, Trainer
 from dotenv import load_dotenv
-from utils.helpers import _local_or_sagemaker
+from aws_helpers.helpers import _local_or_sagemaker
 from PIL import Image
 from io import BytesIO
 from huggingface_hub import login

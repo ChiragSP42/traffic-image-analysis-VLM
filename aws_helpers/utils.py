@@ -2,7 +2,7 @@ from typing import (
     Any,
     Optional,
 )
-from aws_helpers.helpers import (
+from .helpers import (
     list_obj_s3
 )
 import json
