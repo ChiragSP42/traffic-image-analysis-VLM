@@ -20,9 +20,10 @@ huggingface_estimator = HuggingFace(
     pytorch_version='2.5',
     py_version='py311',
     hyperparameters=hyperparameters, # type: ignore
-    metric_definitions=[                        # For parsing the logs for metrics
-        {'Name': 'train_loss', 'Regex': r'loss = ([0-9\.]+)'},
-        {'Name': 'eval_loss', 'Regex': r'loss = ([0-9\.]+)'},
+    metric_definitions=[
+        {'Name': 'train_loss', 'Regex': r'train_loss = ([0-9\.]+)'},
+        {'Name': 'eval_loss', 'Regex': r'eval_loss = ([0-9\.]+)'},
+        {'Name': 'epoch', 'Regex': r'epoch = ([0-9\.]+)'},
     ],
 )
 

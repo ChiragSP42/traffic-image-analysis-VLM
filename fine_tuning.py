@@ -4,7 +4,7 @@ import pandas as pd
 from datasets import load_dataset
 import torch
 from torch import nn
-from transformers import CLIPProcessor, CLIPModel, CLIPConfig, TrainingArguments, Trainer
+from transformers import CLIPProcessor, CLIPModel, CLIPConfig, TrainingArguments, Trainer, TrainerCallback
 from dotenv import load_dotenv
 from aws_helpers.helpers import _local_or_sagemaker
 from PIL import Image
@@ -68,13 +68,25 @@ def main():
     session = boto3.Session(aws_access_key_id=AWS_ACCESS_KEY,
                             aws_secret_access_key=AWS_SECRET_KEY,
                             region_name='us-east-1')
+    
+    class CustomLoggingCallback(TrainerCallback):
+        def on_log(self, args, state, control, logs=None, model=None, **kwargs):
+            if logs:
+                if 'loss' in logs:
+                    print(f"Train loss: {logs['loss']}")
+                if 'eval_loss' in logs:
+                    print(f"Eval loss: {logs['eval_loss']}")
+        
+        def on_evaluate(self, args, state, control, metrics=None, **kwargs):
+            if metrics:
+                print(f"Evaluation metrics: {metrics}")
 
     class CLIPForContrastiveLearning(CLIPModel):
         def __init__(self, config):
             super().__init__(config)
             self.loss_fn = nn.CrossEntropyLoss()
 
-        def forward(self, input_ids=None, attention_mask=None, pixel_values=None, ground_truth=None): # type: ignore
+        def forward(self, input_ids=None, attention_mask=None, pixel_values=None, labels=None): # type: ignore
             outputs = super().forward(input_ids=input_ids,
                                     attention_mask=attention_mask,
                                     pixel_values=pixel_values,
@@ -85,11 +97,11 @@ def main():
 
             
 
-            if not ground_truth:
-                ground_truth = torch.arange(logits_per_image.size(0), device=logits_per_image.device)
+            if not labels:
+                labels = torch.arange(logits_per_image.size(0), device=logits_per_image.device)
 
-            loss_image = self.loss_fn(logits_per_image, ground_truth)
-            loss_text = self.loss_fn(logits_per_text, ground_truth)
+            loss_image = self.loss_fn(logits_per_image, labels)
+            loss_text = self.loss_fn(logits_per_text, labels)
             loss = (loss_image + loss_text) / 2
 
             return {"loss": loss, **outputs}
@@ -130,9 +142,12 @@ def main():
             num_train_epochs=5,
             eval_strategy="epoch",
             save_strategy="epoch",
+            logging_strategy="epoch",
+            logging_steps=10,
             seed=42,
             fp16=True,  # use mixed precision if supported
             load_best_model_at_end=False,
+            disable_tqdm=True
         )
 
     print("\x1b[31mSetting up Trainer\x1b[0m")
@@ -141,6 +156,7 @@ def main():
             args=training_args,
             train_dataset=train_dataset,
             eval_dataset=test_dataset,
+            callbacks=[CustomLoggingCallback()]
         )
     
     print("\x1b[31mStarting to train model\x1b[0m")

@@ -139,9 +139,10 @@ def _parse_arn(arn: str) -> Dict:
         print(f"ARN {arn} could not be parsed")
         sys.exit(0)
 
-def _local_or_sagemaker():
+def _local_or_sagemaker() -> bool:
     """
     Checks if the current Python script is running within an Amazon SageMaker environment or locally.
+    Returns True if running on SageMaker, False if running locally.
     """
     # As a fallback, check for other common SageMaker environment variables
     sagemaker_env_vars = ['SM_CHANNEL_TRAIN', 'SM_MODEL_DIR', 'SAGEMAKER_PROGRAM']
