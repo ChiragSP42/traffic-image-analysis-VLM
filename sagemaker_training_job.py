@@ -11,7 +11,7 @@ hyperparameters = {
 }
 
 huggingface_estimator = HuggingFace(
-    entry_point="fine_tuning.py",      # Your training script name
+    entry_point="training_job.py",      # Your training script name
     source_dir=".",                             # Directory containing the script and files
     instance_type="ml.p3.2xlarge",              # GPU instance for training
     instance_count=1,

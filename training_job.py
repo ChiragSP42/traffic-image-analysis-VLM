@@ -15,7 +15,7 @@ AWS_SECRET_KEY = os.getenv("AWS_SECRET_KEY")
 HUGGINGFACE_ACCESS_TOKEN = os.getenv("HUGGINGFACE_ACCESS_TOKEN")
 MODEL_ID = "openai/clip-vit-base-patch32"
 S3_BUCKET = 'signal-8-data-creation-testing'
-INPUT_FILE = 'input.csv'
+INPUT_FILE = 'created_data.json'
 IMAGE_FOLDER = 'Data'
 OUTPUT_DIR = ''
 CHECKPOINT_DIR = ''
@@ -79,8 +79,8 @@ else:
     print("\x1b[32mRunning on SageMaker\x1b[0m")
     OUTPUT_DIR = '/opt/ml/model'
     CHECKPOINT_DIR = '/opt/ml/model/checkpoint-last'
-    # dataset = load_dataset("json", data_files=f's3://{S3_BUCKET}/{INPUT_FILE}', field='output', streaming=True, split='train')
-    dataset = load_dataset("json", data_files='temp_json.jsonl', split='train', streaming=False)
+    dataset = load_dataset("json", data_files=f's3://{S3_BUCKET}/{INPUT_FILE}', field='output', streaming=True, split='train')
+    # dataset = load_dataset("json", data_files='temp_json.jsonl', split='train', streaming=False)
 
 
 fine_tuner = FineTuning(model=model,
