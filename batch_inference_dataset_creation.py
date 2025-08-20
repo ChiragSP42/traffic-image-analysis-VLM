@@ -103,7 +103,7 @@ batch_inference = BatchInference(bedrock_client=bedrock,
                                  model_id=MODEL_ID,
                                  creation_prompt=creation_prompt,
                                  role_arn = ROLE_ARN,
-                                 job_name='car-analysis-batched-5')
+                                 job_name='car-analysis-batched-6')
 
 
 job_arn = batch_inference.start_batch_inference_job()

@@ -1,7 +1,8 @@
 from typing import (
     Any,
     Optional,
-    Union
+    Union,
+    Tuple
 )
 from .helpers import (
     list_obj_s3,
@@ -17,6 +18,7 @@ from PIL import Image
 from io import BytesIO
 import time
 import pandas as pd
+from datasets import Dataset, IterableDataset
 
 class BatchInference():
     def create_input_jsonl(self) -> None:
@@ -291,27 +293,74 @@ class BatchInference():
 
 class FineTuning():
     def __init__(self, model: Any,
-                 processor: Any,
-                 config: Any,
+                 processor: Optional[Any],
                  dataset: Any,
                  batch_size: int,
                  s3_client: Any,
                  bucket_name: str,
                  folder_name: str,
                  ):
-        self.config = config
+        """
+        Tool to perform fine tuning. Fine tuning consists of the following stages.
+        1. Data ingestion (Loading the data)
+        2. Data preprocessing (Any preprocessing, formatting of dataset, splitting)
+        3. Fine tuning configuration
+        4. Fine tuning
+
+        Attributes:
+            model (Any): The model that will be used to fine tune. Define the object and pass it here.
+            processor (Optional[Any]): A processor function. Used to preprocess data into proper format.
+            dataset (Any): The dataset of class Dataset or IterableDataset.
+            batch_size (int): Batch size if preprocessing dataset.
+            s3_client (Any): S3 client object used in preprocessing.
+            bucket_name (str): S3 bucket name where data is present.
+            folder_name (str): Folder name used in preprocessing the data.
+
+        """
         self.model = model
         self.processor = processor
         self.dataset = dataset
         self.batch_size = batch_size
-        self.s3_client =s3_client
+        self.s3_client = s3_client
         self.bucket_name = bucket_name
         self.folder_name = folder_name
 
-        self.processed_dataset = self.dataset.map(self.preprocess, batched=True, batch_size=self.batch_size)
+        # if not self.processor:
+            # self.dataset = self.dataset.map(self.preprocess_dataset, batched=True, batch_size=self.batch_size)
+
+    def preprocess_dataset(self, 
+                   sample: Any):
+        def load_images_from_s3(image_file_name):
+            """
+            Function to retrieve image from S3.
+            """
+
+            response = self.s3_client.get_object(Bucket=self.bucket_name,
+                                            Key=f"{self.folder_name}/{image_file_name}")
+            image_bytes = response["Body"].read()
+            image = Image.open(BytesIO(image_bytes)).convert("RGB")
+            return image
+        
+        description_template = f"A {sample['year']} {sample['car_type']} {sample['color']} {sample['make']} {sample['model']} with license plate number {sample['license_plate']} has the following unique identifiers {sample['unique_identifiers']}"
+
+        images = [load_images_from_s3(image) for image in sample["s3uri"]]
+
+        if self.processor is None:
+            raise ValueError("Processor is None. Please provide a valid processor before calling preprocess.")
+
+        preprocessed = self.processor(text=description_template,
+                                images=images,
+                                padding='max_length',
+                                return_tensors='pt',
+                                truncation=True)
+
+        return {"input_ids": preprocessed['input_ids'],
+                "attention_mask": preprocessed['attention_mask'],
+                "pixel_values": preprocessed['pixel_values']
+            }
 
     def preprocess(self, 
-                   examples: Any):
+                   sample: Any):
         def load_images_from_s3(image_file_name):
             """
             Function to retrieve image from S3.
@@ -323,9 +372,12 @@ class FineTuning():
             image = Image.open(BytesIO(image_bytes)).convert("RGB")
             return image
 
-        images = [load_images_from_s3(image) for image in examples["File_name"]]
+        images = [load_images_from_s3(image) for image in sample["File_name"]]
 
-        preprocessed = self.processor(text=examples["Description"],
+        if self.processor is None:
+            raise ValueError("Processor is None. Please provide a valid processor before calling preprocess.")
+
+        preprocessed = self.processor(text=sample["Description"],
                                 images=images,
                                 padding='max_length',
                                 return_tensors='pt',
@@ -339,29 +391,40 @@ class FineTuning():
     def split(self, 
               train_size: float=0.8,
               seed: int=42,
-              ):
-        random.seed(seed)
+              ) -> Tuple[Any, Any]:
+        """
+        Function to split dataset into train and test. Based on datatype of dataset (Dataset or IterableDataset) 
+        train_test_split or manual splitting logic is used respectively. By default, shuffle is enabled.
+        """
+        if isinstance(self.dataset, IterableDataset):
+            random.seed(seed)
 
-        # Generator function to yield train or test samples
-        def splitter(gen):
-            for sample in gen:
-                if random.random() > train_size:
-                    yield ("test", sample)
-                else:
-                    yield ("train", sample)
+            # Generator function to yield train or test samples
+            def splitter(gen):
+                for sample in gen:
+                    if random.random() > train_size:
+                        yield ("test", sample)
+                    else:
+                        yield ("train", sample)
 
-        split_labeled = splitter(self.processed_dataset)
+            split_labeled = splitter(iter(self.dataset))
 
-        def filter_split(gen, split_label):
-            for label, sample in gen:
-                if label == split_label:
-                    yield sample
+            def filter_split(gen, split_label):
+                for label, sample in gen:
+                    if label == split_label:
+                        yield sample
 
-        gen1, gen2 = tee(split_labeled)
+            gen1, gen2 = tee(split_labeled)
 
-        train_dataset = filter_split(gen1, "train")
-        test_dataset = filter_split(gen2, "test")
+            train_dataset = filter_split(gen1, "train")
+            test_dataset = filter_split(gen2, "test")
 
-        return train_dataset, test_dataset
+            return train_dataset, test_dataset
+        elif isinstance(self.dataset, Dataset):
+            print("Standard train_test_split function being employed")
+            split = self.dataset.train_test_split(train_size=train_size)
+            return split["train"], split["test"]
+        else:
+            raise ValueError("Acceptable datatypes of dataset if datasets.Dataset or datasets.IterableDataset")
 
-        
+            

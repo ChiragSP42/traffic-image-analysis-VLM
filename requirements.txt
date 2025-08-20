@@ -9,3 +9,4 @@ pillow
 accelerate
 python-pptx
 sagemaker
+s3fs
