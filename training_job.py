@@ -1,13 +1,17 @@
-from aws_helpers.utils import FineTuning
-from aws_helpers.helpers import _local_or_sagemaker
+from aws_helpers.utils import StreamingCLIPDataset
+from aws_helpers.helpers import _local_or_sagemaker, list_obj_s3
 import os
 import torch
 import boto3
 from torch import nn
 from transformers import CLIPModel, CLIPProcessor, CLIPConfig, Trainer, TrainingArguments, TrainerCallback
-from datasets import load_dataset, Dataset, IterableDataset
+from datasets import load_dataset, Dataset
 from huggingface_hub import login
 from dotenv import load_dotenv
+import random
+from PIL import Image
+from io import BytesIO
+from typing import Any, Optional
 load_dotenv()
 
 AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY")
@@ -20,12 +24,6 @@ IMAGE_FOLDER = 'Data'
 OUTPUT_DIR = ''
 CHECKPOINT_DIR = ''
 dataset = Dataset
-
-session = boto3.Session(aws_access_key_id=AWS_ACCESS_KEY,
-                            aws_secret_access_key=AWS_SECRET_KEY,
-                            region_name='us-east-1')
-
-s3_client = session.client('s3')
 
 class CLIPForContrastiveLearning(CLIPModel):
     def __init__(self, config):
@@ -82,25 +80,31 @@ else:
     dataset = load_dataset("json", data_files=f's3://{S3_BUCKET}/{INPUT_FILE}', field='output', streaming=True, split='train')
     # dataset = load_dataset("json", data_files='temp_json.jsonl', split='train', streaming=False)
 
+train_stream = StreamingCLIPDataset(dataset_stream=dataset,
+                                    processor=processor,
+                                    bucket_name=S3_BUCKET,
+                                    folder_name=IMAGE_FOLDER,
+                                    aws_access_key=AWS_ACCESS_KEY,
+                                    aws_secret_key=AWS_SECRET_KEY, 
+                                    train_size=0.8, 
+                                    is_train=True)
+test_stream = StreamingCLIPDataset(dataset_stream=dataset,
+                                    processor=processor,
+                                    bucket_name=S3_BUCKET,
+                                    folder_name=IMAGE_FOLDER,
+                                    aws_access_key=AWS_ACCESS_KEY,
+                                    aws_secret_key=AWS_SECRET_KEY, 
+                                    train_size=0.8, 
+                                    is_train=False)
 
-fine_tuner = FineTuning(model=model,
-                        processor=processor,
-                        dataset=dataset,
-                        batch_size=4,
-                        s3_client=s3_client,
-                        bucket_name=S3_BUCKET,
-                        folder_name=IMAGE_FOLDER)
-
-train_dataset, test_dataset = fine_tuner.split(train_size=0.8)
-
-train_dataset.set_format(type='torch',
-                             columns=['input_ids', 'attention_mask', 'pixel_values'])
-test_dataset.set_format(type='torch',
-                        columns=['input_ids', 'attention_mask', 'pixel_values'])
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 print("\x1b[31mSetting up Training Arguments\x1b[0m")
+num_epochs = 10
+length_of_dataset = len(train_stream)+ len(test_stream)
+batch_size = 8
+steps_per_epoch = (length_of_dataset + batch_size - 1) // batch_size
 training_args = TrainingArguments(
         output_dir=OUTPUT_DIR,  # SageMaker default model directory for saving artifacts
         learning_rate=2e-5,
@@ -108,6 +112,8 @@ training_args = TrainingArguments(
         eval_strategy="epoch",
         save_strategy="epoch",
         logging_strategy="epoch",
+        max_steps = steps_per_epoch * num_epochs,
+        eval_steps = steps_per_epoch * 0.25,
         logging_steps=10,
         seed=42,
         fp16=True,  # use mixed precision if supported
@@ -119,8 +125,8 @@ print("\x1b[31mSetting up Trainer\x1b[0m")
 trainer = Trainer(
         model=model,
         args=training_args,
-        train_dataset=train_dataset,
-        eval_dataset=test_dataset,
+        train_dataset=train_stream, # type: ignore
+        eval_dataset=test_stream, # type: ignore
         callbacks=[CustomLoggingCallback()]
     )
 

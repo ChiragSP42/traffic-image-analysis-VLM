@@ -5,7 +5,7 @@ role = "arn:aws:iam::381492026108:role/SageMakerTrainingJobRole"
 
 # Hyperparameters passed as command-line arguments to your script
 hyperparameters = {
-    "epochs": 5,
+    "epochs": 10,
     "per_device_train_batch_size": 8,
     "per_device_eval_batch_size": 8,
 }

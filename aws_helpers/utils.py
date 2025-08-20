@@ -10,6 +10,8 @@ from .helpers import (
 )
 import json
 import base64
+import boto3
+from dotenv import load_dotenv
 import os
 import sys
 import random
@@ -19,6 +21,7 @@ from io import BytesIO
 import time
 import pandas as pd
 from datasets import Dataset, IterableDataset
+load_dotenv()
 
 class BatchInference():
     def create_input_jsonl(self) -> None:
@@ -72,9 +75,9 @@ class BatchInference():
         try:
             print(f"\x1b[31mUploading input.jsonl file to S3 bucket at path {self.bucket_name}/input.jsonl\x1b[0m")
             with open('input.jsonl', 'rb') as f:
-                self.s3_client.put_object(Bucket=self.bucket_name,
+                self.s3_client.upload_fileobj(Bucket=self.bucket_name,
                                     Key='input.jsonl',
-                                    Body=f)
+                                    Fileobj=f)
             print("\x1b[32mUploaded file\x1b[0m")
         except Exception as e:
             print(e)
@@ -186,9 +189,24 @@ class BatchInference():
                 dots = "." * (counter % 4)
                 sys.stdout.write(f"\r{status}{dots}".ljust(len(status) + 4))
                 sys.stdout.flush()
+                print()
                 time.sleep(0.5)
                 counter += 1
                 if status == 'Completed':
+                    # Print manifest.json.out which contains information about inference job.
+                    list_folders_output = list_obj_s3(s3_client=self.s3_client,
+                               bucket_name=self.bucket_name,
+                               folder_name=self.output_folder,
+                               delimiter='/')[-1]
+        
+                    response_binary = self.s3_client.get_object(Bucket=self.bucket_name,
+                                                    Key=os.path.join(list_folders_output, "manifest.json.out"))["Body"]
+                    
+                    response = response_binary.read()
+                    
+                    json_obj = json.loads(response.decode('utf-8'))
+                    for key, value in json_obj.items():
+                        print(f"{key}: {value}")
                     return True
                 elif status == 'Failed':
                     return False
@@ -247,7 +265,7 @@ class BatchInference():
                 text = json_obj["modelOutput"]["content"][0]["text"]
                 text = json.loads(text)
                 if not justOnce:
-                    print(text)
+                    # print(text)
                     justOnce = True
                 record_id = json_obj["recordId"] # Contains the filename
                 output_json = {
@@ -296,9 +314,6 @@ class FineTuning():
                  processor: Optional[Any],
                  dataset: Any,
                  batch_size: int,
-                 s3_client: Any,
-                 bucket_name: str,
-                 folder_name: str,
                  ):
         """
         Tool to perform fine tuning. Fine tuning consists of the following stages.
@@ -321,29 +336,65 @@ class FineTuning():
         self.processor = processor
         self.dataset = dataset
         self.batch_size = batch_size
-        self.s3_client = s3_client
+    
+    def split(self, 
+              train_size: float=0.8,
+              ) -> Tuple[Any, Any]:
+        """
+        Function to split dataset into train and test. Based on datatype of dataset (Dataset) 
+        train_test_split. By default, shuffle is enabled.
+        """
+        if isinstance(self.dataset, Dataset):
+            print("Standard train_test_split function being employed")
+            split = self.dataset.train_test_split(train_size=train_size)
+            return split["train"], split["test"]
+        else:
+            raise ValueError("Acceptable datatypes of dataset of datasets.Dataset")
+
+class StreamingCLIPDataset:
+    def __init__(self, 
+                 dataset_stream: Any,
+                 processor: Any,
+                 bucket_name: str,
+                 folder_name: str,
+                 aws_access_key: Optional[str],
+                 aws_secret_key: Optional[str],
+                 region: str='us-east-1',
+                 train_size=0.8, 
+                 seed=42, 
+                 is_train=True,
+                 ):
+        self.dataset_stream = dataset_stream
+        self.processor = processor
+        self.train_size = train_size
+        self.seed = seed
+        self.is_train = is_train
         self.bucket_name = bucket_name
         self.folder_name = folder_name
+        self.aws_access_key = aws_access_key
+        self.aws_secret_key = aws_secret_key
+        self.region = region
 
-        # if not self.processor:
-            # self.dataset = self.dataset.map(self.preprocess_dataset, batched=True, batch_size=self.batch_size)
-
-    def preprocess_dataset(self, 
-                   sample: Any):
-        def load_images_from_s3(image_file_name):
-            """
-            Function to retrieve image from S3.
-            """
-
-            response = self.s3_client.get_object(Bucket=self.bucket_name,
-                                            Key=f"{self.folder_name}/{image_file_name}")
-            image_bytes = response["Body"].read()
-            image = Image.open(BytesIO(image_bytes)).convert("RGB")
-            return image
+    def _get_s3_client(self):
+        session = boto3.Session(aws_access_key_id=self.aws_access_key,
+                                aws_secret_access_key=self.aws_secret_key,
+                                region_name=self.region)
         
+        return session.client('s3')
+    
+    def _load_image_from_s3(self, filename):
+        s3_client = self._get_s3_client()
+
+        response = s3_client.get_object(Bucket=self.bucket_name,
+                                            Key=f"{self.folder_name}/{filename}")
+        image_bytes = response["Body"].read()
+        image = Image.open(BytesIO(image_bytes)).convert("RGB")
+        return image
+    
+    def _preprocess_sample(self, sample):
         description_template = f"A {sample['year']} {sample['car_type']} {sample['color']} {sample['make']} {sample['model']} with license plate number {sample['license_plate']} has the following unique identifiers {sample['unique_identifiers']}"
 
-        images = [load_images_from_s3(image) for image in sample["s3uri"]]
+        images = [self._load_image_from_s3(image) for image in sample["s3uri"]]
 
         if self.processor is None:
             raise ValueError("Processor is None. Please provide a valid processor before calling preprocess.")
@@ -354,77 +405,45 @@ class FineTuning():
                                 return_tensors='pt',
                                 truncation=True)
 
-        return {"input_ids": preprocessed['input_ids'],
-                "attention_mask": preprocessed['attention_mask'],
-                "pixel_values": preprocessed['pixel_values']
+        return {"input_ids": preprocessed['input_ids'].squeeze(0),
+                "attention_mask": preprocessed['attention_mask'].squeeze(0),
+                "pixel_values": preprocessed['pixel_values'].squeeze(0)
             }
+    def __iter__(self):
+        random.seed(self.seed)
+        for sample in self.dataset_stream:
+            is_train_sample = random.random() < self.train_size
+            if (self.is_train and is_train_sample) or (not self.is_train and not is_train_sample):
+                try:
+                    preprocessed_sample = self._preprocess_sample(sample)
+                    yield preprocessed_sample
+                except Exception as e:
+                    print(f"Error preprocessing sample: {e}")
+                    continue            
 
-    def preprocess(self, 
-                   sample: Any):
-        def load_images_from_s3(image_file_name):
-            """
-            Function to retrieve image from S3.
-            """
-
-            response = self.s3_client.get_object(Bucket=self.bucket_name,
-                                            Key=f"{self.folder_name}/{image_file_name}")
-            image_bytes = response["Body"].read()
-            image = Image.open(BytesIO(image_bytes)).convert("RGB")
-            return image
-
-        images = [load_images_from_s3(image) for image in sample["File_name"]]
-
-        if self.processor is None:
-            raise ValueError("Processor is None. Please provide a valid processor before calling preprocess.")
-
-        preprocessed = self.processor(text=sample["Description"],
-                                images=images,
-                                padding='max_length',
-                                return_tensors='pt',
-                                truncation=True)
-
-        return {"input_ids": preprocessed['input_ids'],
-                "attention_mask": preprocessed['attention_mask'],
-                "pixel_values": preprocessed['pixel_values']
-            }
-    
-    def split(self, 
-              train_size: float=0.8,
-              seed: int=42,
-              ) -> Tuple[Any, Any]:
+    def __len__(self):
         """
-        Function to split dataset into train and test. Based on datatype of dataset (Dataset or IterableDataset) 
-        train_test_split or manual splitting logic is used respectively. By default, shuffle is enabled.
+        Return a reasonable estimate for the dataset length.
+        For streaming datasets, we can't know the exact length,
+        so we return an estimate that will work with DataLoader.
         """
-        if isinstance(self.dataset, IterableDataset):
-            random.seed(seed)
+        # You mentioned 205 samples in your training_job.py
+        # Adjust this based on your actual dataset size
 
-            # Generator function to yield train or test samples
-            def splitter(gen):
-                for sample in gen:
-                    if random.random() > train_size:
-                        yield ("test", sample)
-                    else:
-                        yield ("train", sample)
+        s3_client = self._get_s3_client()
 
-            split_labeled = splitter(iter(self.dataset))
-
-            def filter_split(gen, split_label):
-                for label, sample in gen:
-                    if label == split_label:
-                        yield sample
-
-            gen1, gen2 = tee(split_labeled)
-
-            train_dataset = filter_split(gen1, "train")
-            test_dataset = filter_split(gen2, "test")
-
-            return train_dataset, test_dataset
-        elif isinstance(self.dataset, Dataset):
-            print("Standard train_test_split function being employed")
-            split = self.dataset.train_test_split(train_size=train_size)
-            return split["train"], split["test"]
+        response = list_obj_s3(s3_client=s3_client,
+                               bucket_name=self.bucket_name,
+                               folder_name=self.folder_name)
+        estimated_total_size = len(response)
+        if self.is_train:
+            return int(estimated_total_size * self.train_size)
         else:
-            raise ValueError("Acceptable datatypes of dataset if datasets.Dataset or datasets.IterableDataset")
-
-            
+            return int(estimated_total_size * (1 - self.train_size))
+        
+    def __getitem__(self, idx):
+        """
+        This method should not be called for streaming datasets,
+        but we need it to satisfy the Dataset interface.
+        """
+        raise NotImplementedError("StreamingCLIPDataset does not support indexing. Use as an iterable.")
