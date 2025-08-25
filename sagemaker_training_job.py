@@ -1,13 +1,23 @@
 from sagemaker.huggingface import HuggingFace # type: ignore
+from aws_helpers.helpers import list_obj_s3, _get_s3_client
 
 # IAM role with SageMaker and S3 access permissions
 role = "arn:aws:iam::381492026108:role/SageMakerTrainingJobRole"
 
 # Hyperparameters passed as command-line arguments to your script
+S3_BUCKET = 'signal-8-data-creation-testing'
+IMAGE_FOLDER = 'Data'
+num_epochs = 10
+length_of_dataset = len(list_obj_s3(s3_client=_get_s3_client(),
+                                    bucket_name=S3_BUCKET,
+                                    folder_name=IMAGE_FOLDER))
+
+batch_size = 16
+steps_per_epoch = (length_of_dataset + batch_size - 1) // batch_size
 hyperparameters = {
-    "epochs": 10,
-    "per_device_train_batch_size": 8,
-    "per_device_eval_batch_size": 8,
+    "max_steps": steps_per_epoch * num_epochs,
+    "per_device_train_batch_size": 16,
+    "per_device_eval_batch_size": 16,
 }
 
 huggingface_estimator = HuggingFace(

@@ -6,7 +6,8 @@ from typing import (
 )
 from .helpers import (
     list_obj_s3,
-    _local_or_sagemaker
+    _local_or_sagemaker,
+    _get_s3_client
 )
 import json
 import base64
@@ -189,10 +190,10 @@ class BatchInference():
                 dots = "." * (counter % 4)
                 sys.stdout.write(f"\r{status}{dots}".ljust(len(status) + 4))
                 sys.stdout.flush()
-                print()
                 time.sleep(0.5)
                 counter += 1
                 if status == 'Completed':
+                    print()
                     # Print manifest.json.out which contains information about inference job.
                     list_folders_output = list_obj_s3(s3_client=self.s3_client,
                                bucket_name=self.bucket_name,
@@ -209,6 +210,7 @@ class BatchInference():
                         print(f"{key}: {value}")
                     return True
                 elif status == 'Failed':
+                    print()
                     return False
                 time.sleep(5)
         # If you're trying to poll nothing.
@@ -299,7 +301,7 @@ class BatchInference():
         print(f"Processed: {processed_counter}\nSuccess: {success_counter}\nFailed: {failed_counter}")
         print("\x1b[31mUploading JSON file\x1b[0m")
         self.s3_client.put_object(Bucket=self.bucket_name,
-                            Key=os.path.join(list_folders_output, f"{OUTPUT_FILENAME}.json"),
+                            Key=f"{OUTPUT_FILENAME}.json",
                             Body=json.dumps(output_json, indent = 2),
                             ContentType='application/json')
         print(f"\x1b[32mUploaded JSON file to S3 bucket of same directory {os.path.join(self.bucket_name, list_folders_output, f'{OUTPUT_FILENAME}.json')}\x1b[0m")
@@ -310,10 +312,11 @@ class BatchInference():
             print("\x1b[32mCreated local copy as csv file\x1b[0m")
 
 class FineTuning():
-    def __init__(self, model: Any,
-                 processor: Optional[Any],
-                 dataset: Any,
-                 batch_size: int,
+    def __init__(self,
+                 bucket_name: str,
+                 folder_name: str,
+                 processor: Any,
+                 dataset: Optional[Dataset]=None
                  ):
         """
         Tool to perform fine tuning. Fine tuning consists of the following stages.
@@ -332,10 +335,11 @@ class FineTuning():
             folder_name (str): Folder name used in preprocessing the data.
 
         """
-        self.model = model
+        self.bucket_name = bucket_name
+        self.folder_name = folder_name
         self.processor = processor
-        self.dataset = dataset
-        self.batch_size = batch_size
+        if dataset is not None:
+            self.dataset = dataset
     
     def split(self, 
               train_size: float=0.8,

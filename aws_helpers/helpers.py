@@ -148,9 +148,36 @@ def _local_or_sagemaker() -> bool:
     sagemaker_env_vars = ['SM_CHANNEL_TRAIN', 'SM_MODEL_DIR', 'SAGEMAKER_PROGRAM']
     for var in sagemaker_env_vars:
         if var in os.environ:
+            print(var)
             return True
 
     return False
+
+def _get_s3_client(aws_access_key: Optional[str]=None,
+                   aws_secret_key: Optional[str]=None,
+                   region_name: str='us-east-1'):
+    
+    if aws_access_key and aws_secret_key is None:
+        aws_access_key = os.getenv("AWS_ACCESS_KEY")
+        aws_secret_key = os.getenv("AWS_SECRET_KEY")
+        if aws_access_key and aws_secret_key is None:
+            raise ValueError("AWS credentials not set in environment.")
+        else:
+            session = boto3.Session(aws_access_key_id=aws_access_key,
+                                    aws_secret_access_key=aws_secret_key,
+                                    region_name=region_name)
+            
+            s3_client = session.client("s3")
+
+            return s3_client
+    else:
+        session = boto3.Session(aws_access_key_id=aws_access_key,
+                                    aws_secret_access_key=aws_secret_key,
+                                    region_name=region_name)
+            
+        s3_client = session.client("s3")
+
+        return s3_client
 
 def list_obj_s3(s3_client: Any,
                 bucket_name: Optional[str],

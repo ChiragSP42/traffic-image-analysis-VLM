@@ -17,10 +17,10 @@ bedrock = session.client('bedrock', region_name='us-east-1')
 
 s3_client = session.client('s3', region_name='us-east-1')
 
-# BUCKET_NAME = 'signal-8-data-creation-testing'
-BUCKET_NAME = 'bravo-foxtrot-data'
-# FOLDER_NAME = 'Data'
-FOLDER_NAME = 'bravo_foxtrot_images_data'
+BUCKET_NAME = 'signal-8-data-creation-testing'
+# BUCKET_NAME = 'bravo-foxtrot-data'
+FOLDER_NAME = 'Data'
+# FOLDER_NAME = 'bravo_foxtrot_images_data'
 OUTPUT_FOLDER = 'output-sonnet-4/'
 # MODEL_ID = 'us.anthropic.claude-3-5-sonnet-20241022-v2:0'
 MODEL_ID = 'us.anthropic.claude-sonnet-4-20250514-v1:0'
@@ -109,7 +109,7 @@ batch_inference = BatchInference(bedrock_client=bedrock,
                                  model_id=MODEL_ID,
                                  creation_prompt=creation_prompt,
                                  role_arn = ROLE_ARN,
-                                 job_name='bf-1')
+                                 job_name='s8-1')
 
 
 job_arn = batch_inference.start_batch_inference_job()
