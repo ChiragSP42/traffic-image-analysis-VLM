@@ -5,7 +5,7 @@ To accomplish this, this project leverages multimodal LLM to curate a dataset ba
 
 Before going over the different programs, their functions and outcomes, let's go over the environment setup.
 
-## Environment Set up
+## Environment Setup
 
 This code was created with python==3.10.18 in a conda environment.
 
@@ -49,4 +49,4 @@ Output of the inference job is a jsonl file, `input.jsonl.out` located in a S3 d
 
 You can either run the `fine_tuning.py` script directly (of course you need to alter the directory paths to your required paths) or run it through a training job using sagemaker. Edit the `OUTPUT_DIR` and `CHECKPOINT_DIR` according to your needs if you're not using a training job.
 
-## Miscellneaous
+## Miscellaneous
