@@ -7,8 +7,13 @@ from typing import (
     Tuple)
 import json
 import boto3
+from io import BytesIO
+import pandas as pd
+import random
+import requests
 import sys
 import traceback
+from tqdm.auto import tqdm
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -156,6 +161,18 @@ def _local_or_sagemaker() -> bool:
 def _get_s3_client(aws_access_key: Optional[str]=None,
                    aws_secret_key: Optional[str]=None,
                    region_name: str='us-east-1'):
+    """
+    Function to generate S3 client object. Access keys are retrieved from .env by default.
+    If alternate keys can be provisioned via parameters. Default region name is 'us-east-1'.
+
+    Parameters:
+        aws_access_key (Optional[str]): AWS Access key ID.
+        aws_secret_key (Optional[str]): AWS Secret key ID.
+        region_name (str): Region name.
+
+    Returns:
+        S3 client object.
+    """
     
     if aws_access_key and aws_secret_key is None:
         aws_access_key = os.getenv("AWS_ACCESS_KEY")
@@ -342,3 +359,73 @@ def subscribe(sns_arn: str, sqs_arn: str, sns_client: Any) -> None:
 
     sns_client.subscribe(TopicArn = sns_arn, Protocol = 'sqs', Endpoint = sqs_arn)
     print("\x1b[32mSubscribed SQS Queue to SNS Topic\x1b[0m")
+
+def json_creation(response: dict,
+                  bucket_name: str,
+                  image_folder: str) -> List[Dict]:
+    output = []
+    for idx, url in enumerate(response["urls"]):
+        # image_response = requests.get(url)
+        json_body = {
+            "s3uri": f"s3://{bucket_name}/{image_folder}/{response['vehicle']['vifnum']}-{idx}.jpeg",
+            "year": response['vehicle']["year"],
+            "make": response['vehicle']["make"],
+            "model": response['vehicle']["model"],
+            "color": response['vehicle']["color_simpletitle"],
+            "car_type": response['vehicle']["body"]
+        }
+        output.append(json_body)
+
+    return output
+
+
+def create_dataset(bucket_name: str,
+                    image_folder: str,
+                    no_vif: Optional[int]=None,
+                    no_images: int=36,
+                    vif_shuffle: Optional[bool]=True,
+                    images_shuffle: Optional[bool]=True,
+                    productID: int=3,
+                    productTypeID=67,
+                    seed: int=42):
+    """
+    Number of vehicles to download, shuffle option on that. Number of images to download per vehicle and shuffle option on that.
+    """
+    print("\x1b[31mStarting creation of dataset\x1b[0m")
+    if no_images:
+        if no_images < 0 or no_images > 36:
+            raise ValueError("Number of images to extract can be 36 at most.")
+
+    EVOX_API_KEY = os.getenv("EVOX_API_KEY", None)
+    if EVOX_API_KEY is None:
+        raise ValueError("EVOX_API_KEY not set or incorrect.")
+
+    s3_client = _get_s3_client()
+    excel_file = s3_client.get_object(Bucket=bucket_name,
+                                          Key='VIF_list_American.xlsx')["Body"].read()
+    excel_bytes = BytesIO(excel_file)
+    print(f"\x1b[33mReading EXCEL file from S3 bucket {bucket_name}\x1b[0m")
+    df = pd.read_excel(excel_bytes, sheet_name='Sheet1')
+    print("\x1b[32mRead EXCEL file\x1b[0m")
+    df = df[df["Exterior"] == 1]
+    if no_vif and vif_shuffle:
+        df = df.sample(n=no_vif, random_state=seed)
+    elif vif_shuffle:
+        df = df.sample(n = df.shape[0], random_state=seed)
+    elif no_vif:
+        df = df.loc[:no_vif, :]
+    print(df.shape)
+    output = []
+    for vif in tqdm(df["VIF #"]):
+        url = f"https://api.evoximages.com/api/v1/vehicles/{vif}/products/{productID}/{productTypeID}?api_key={EVOX_API_KEY}"
+        response = requests.get(url).json()
+        response["urls"] = [response["urls"][index] for index in random.sample(range(0, 36), k=no_images)]
+        # print(json.dumps(response, indent=2))
+        # print("Initial", output)
+        output.extend(json_creation(response=response,
+                      bucket_name=bucket_name,
+                      image_folder=image_folder))
+        # print("After", output)
+    
+    with open('dataset.json', 'w') as f:
+        f.write(json.dumps({"output": output}, indent = 2))
