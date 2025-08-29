@@ -160,6 +160,7 @@ def _local_or_sagemaker() -> bool:
 
 def _get_s3_client(aws_access_key: Optional[str]=None,
                    aws_secret_key: Optional[str]=None,
+                   config: Optional[Any]=None,
                    region_name: str='us-east-1'):
     """
     Function to generate S3 client object. Access keys are retrieved from .env by default.
@@ -183,8 +184,8 @@ def _get_s3_client(aws_access_key: Optional[str]=None,
             session = boto3.Session(aws_access_key_id=aws_access_key,
                                     aws_secret_access_key=aws_secret_key,
                                     region_name=region_name)
-            
-            s3_client = session.client("s3")
+        
+            s3_client = session.client("s3", config=config)
 
             return s3_client
     else:
@@ -192,7 +193,7 @@ def _get_s3_client(aws_access_key: Optional[str]=None,
                                     aws_secret_access_key=aws_secret_key,
                                     region_name=region_name)
             
-        s3_client = session.client("s3")
+        s3_client = session.client("s3", config=config)
 
         return s3_client
 
@@ -367,7 +368,7 @@ def json_creation(response: dict,
     for idx, url in enumerate(response["urls"]):
         # image_response = requests.get(url)
         json_body = {
-            "s3uri": f"s3://{bucket_name}/{image_folder}/{response['vehicle']['vifnum']}-{idx}.jpeg",
+            "s3uri": f"s3://{bucket_name}/{image_folder}/{response['vehicle']['vifnum']}-{response['vehicle']['year']}-{response['vehicle']['make']}-{response['vehicle']['model']}-{response['vehicle']['color']}-{idx}.jpeg",
             "year": response['vehicle']["year"],
             "make": response['vehicle']["make"],
             "model": response['vehicle']["model"],
@@ -383,8 +384,8 @@ def create_dataset(bucket_name: str,
                     image_folder: str,
                     no_vif: Optional[int]=None,
                     no_images: int=36,
-                    vif_shuffle: Optional[bool]=True,
-                    images_shuffle: Optional[bool]=True,
+                    vif_shuffle: Optional[bool]=False,
+                    images_shuffle: Optional[bool]=False,
                     productID: int=3,
                     productTypeID=67,
                     seed: int=42):
@@ -419,7 +420,8 @@ def create_dataset(bucket_name: str,
     for vif in tqdm(df["VIF #"]):
         url = f"https://api.evoximages.com/api/v1/vehicles/{vif}/products/{productID}/{productTypeID}?api_key={EVOX_API_KEY}"
         response = requests.get(url).json()
-        response["urls"] = [response["urls"][index] for index in random.sample(range(0, 36), k=no_images)]
+        if images_shuffle:
+            response["urls"] = [response["urls"][index] for index in random.sample(range(0, 36), k=no_images)]
         # print(json.dumps(response, indent=2))
         # print("Initial", output)
         output.extend(json_creation(response=response,
