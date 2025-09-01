@@ -5,15 +5,10 @@ from typing import (
     Any, 
     List, 
     Tuple)
-import json
 import boto3
-from io import BytesIO
-import pandas as pd
-import random
-import requests
+import logging
 import sys
 import traceback
-from tqdm.auto import tqdm
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -197,6 +192,41 @@ def _get_s3_client(aws_access_key: Optional[str]=None,
 
         return s3_client
 
+def _setup_logger(level: int, 
+                  handler_type: str='stream', 
+                  filename: Optional[str]=None):
+    """
+    Set up and return a logger with a given name and level.
+    
+    Parameters:
+        name (str): Name of logger
+        level (int): Level of logger like logging.DEBUG, loggin.INFO, etc.
+        handler_type (str): 'stream' for console output, 'file' for file output.
+        filename (Optional[str]): required if handler_type is 'file'.
+    """
+    logger = logging.getLogger(__name__)
+    logger.setLevel(level)
+    
+    # Create handler based on type
+    if handler_type == 'stream':
+        handler = logging.StreamHandler()
+    elif handler_type == 'file':
+        if not filename:
+            raise ValueError("Filename must be provided for file handler")
+        handler = logging.FileHandler(filename)
+    else:
+        raise ValueError("Unknown handler_type. Use 'stream' or 'file'.")
+    
+    # Define formatter
+    formatter = logging.Formatter('%(filename)s:%(funcName)s:%(lineno)d - %(levelname)s - %(message)s')
+    handler.setFormatter(formatter)
+    
+    # Avoid adding handlers multiple times if logger is configured more than once
+    if not logger.hasHandlers():
+        logger.addHandler(handler)
+    
+    return logger
+
 def list_obj_s3(s3_client: Any,
                 bucket_name: Optional[str],
                 folder_name: Optional[str],
@@ -379,55 +409,3 @@ def json_creation(response: dict,
 
     return output
 
-
-def create_dataset(bucket_name: str,
-                    image_folder: str,
-                    no_vif: Optional[int]=None,
-                    no_images: int=36,
-                    vif_shuffle: Optional[bool]=False,
-                    images_shuffle: Optional[bool]=False,
-                    productID: int=3,
-                    productTypeID=67,
-                    seed: int=42):
-    """
-    Number of vehicles to download, shuffle option on that. Number of images to download per vehicle and shuffle option on that.
-    """
-    print("\x1b[31mStarting creation of dataset\x1b[0m")
-    if no_images:
-        if no_images < 0 or no_images > 36:
-            raise ValueError("Number of images to extract can be 36 at most.")
-
-    EVOX_API_KEY = os.getenv("EVOX_API_KEY", None)
-    if EVOX_API_KEY is None:
-        raise ValueError("EVOX_API_KEY not set or incorrect.")
-
-    s3_client = _get_s3_client()
-    excel_file = s3_client.get_object(Bucket=bucket_name,
-                                          Key='VIF_list_American.xlsx')["Body"].read()
-    excel_bytes = BytesIO(excel_file)
-    print(f"\x1b[33mReading EXCEL file from S3 bucket {bucket_name}\x1b[0m")
-    df = pd.read_excel(excel_bytes, sheet_name='Sheet1')
-    print("\x1b[32mRead EXCEL file\x1b[0m")
-    df = df[df["Exterior"] == 1]
-    if no_vif and vif_shuffle:
-        df = df.sample(n=no_vif, random_state=seed)
-    elif vif_shuffle:
-        df = df.sample(n = df.shape[0], random_state=seed)
-    elif no_vif:
-        df = df.loc[:no_vif, :]
-    print(df.shape)
-    output = []
-    for vif in tqdm(df["VIF #"]):
-        url = f"https://api.evoximages.com/api/v1/vehicles/{vif}/products/{productID}/{productTypeID}?api_key={EVOX_API_KEY}"
-        response = requests.get(url).json()
-        if images_shuffle:
-            response["urls"] = [response["urls"][index] for index in random.sample(range(0, 36), k=no_images)]
-        # print(json.dumps(response, indent=2))
-        # print("Initial", output)
-        output.extend(json_creation(response=response,
-                      bucket_name=bucket_name,
-                      image_folder=image_folder))
-        # print("After", output)
-    
-    with open('dataset.json', 'w') as f:
-        f.write(json.dumps({"output": output}, indent = 2))
