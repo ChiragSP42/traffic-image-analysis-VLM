@@ -10,3 +10,4 @@ accelerate
 python-pptx
 sagemaker
 s3fs
+torchvision
