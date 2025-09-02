@@ -4,7 +4,7 @@ from io import BytesIO
 import torch
 import json
 from aws_helpers import helpers
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import AutoTokenizer, AutoModelForImageTextToText
 from torch.utils.data import Dataset, DataLoader
 from PIL import Image
 import torchvision.transforms as T
@@ -214,7 +214,7 @@ def main():
         tokenizer.pad_token = tokenizer.eos_token
     
     # Load model
-    # model = AutoModelForCausalLM.from_pretrained(
+    # model = AutoModelForImageTextToText.from_pretrained(
     #     MODEL_ID,
     #     torch_dtype=torch.bfloat16,
     #     device_map="auto",
