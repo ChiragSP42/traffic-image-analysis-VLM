@@ -171,10 +171,16 @@ def _get_s3_client(aws_access_key: Optional[str]=None,
     """
     
     if aws_access_key and aws_secret_key is None:
-        aws_access_key = os.getenv("AWS_ACCESS_KEY")
-        aws_secret_key = os.getenv("AWS_SECRET_KEY")
+        aws_access_key = os.getenv("AWS_ACCESS_KEY", None)
+        aws_secret_key = os.getenv("AWS_SECRET_KEY", None)
         if aws_access_key and aws_secret_key is None:
-            raise ValueError("AWS credentials not set in environment.")
+            try:
+                s3_client = boto3.client("s3", config=config)
+                return s3_client
+            except Exception as e:
+                print(e)
+            finally:
+                raise ValueError("AWS credentials not set in environment.")
         else:
             session = boto3.Session(aws_access_key_id=aws_access_key,
                                     aws_secret_access_key=aws_secret_key,

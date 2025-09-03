@@ -2,7 +2,9 @@ from typing import Dict, List, Any, Optional
 import logging
 from io import BytesIO
 import torch
+import os
 import json
+import argparse
 from aws_helpers import helpers
 from transformers import AutoTokenizer, AutoModelForImageTextToText
 from torch.utils.data import Dataset, DataLoader
@@ -205,6 +207,13 @@ def manual_forward_pass(model, batch):
     
     return outputs.loss if hasattr(outputs, 'loss') else None
 
+def save_model(model, tokenizer, model_dir):
+    """Save model and tokenizer to SageMaker model directory"""
+    logger.info(f"Saving model to {model_dir}")
+    model.save_pretrained(model_dir)
+    tokenizer.save_pretrained(model_dir)
+    logger.info("Model saved successfully")
+
 def main():
     # Load tokenizer only (no processor)
     tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
@@ -214,13 +223,13 @@ def main():
         tokenizer.pad_token = tokenizer.eos_token
     
     # Load model
-    model = AutoModelForImageTextToText.from_pretrained(
-        MODEL_ID,
-        torch_dtype=torch.bfloat16,
-        device_map="auto",
-        trust_remote_code=True
-    )
-    model.train()
+    # model = AutoModelForImageTextToText.from_pretrained(
+    #     MODEL_ID,
+    #     torch_dtype=torch.bfloat16,
+    #     device_map="auto",
+    #     trust_remote_code=True
+    # )
+    # model.train()
     
     logger.info("Creating dataset")
     dataset = ManualImageTextDataset(json_file='created_data.json', s3_bucket=S3_BUCKET)
@@ -233,45 +242,53 @@ def main():
     dataloader = DataLoader(dataset, batch_size=8, collate_fn=collator, shuffle=True)
     
     # Test single batch first
-    # logger.info("Testing single batch...")
-    # try:
-    #     sample_batch = next(iter(dataloader))
-    #     logger.info("✅ Batch creation successful!")
-    #     logger.info(f"Batch keys: {sample_batch.keys()}")
-    #     logger.info(f"Pixel values shape: {sample_batch['pixel_values'].shape}")
-    #     logger.info(f"Input IDs shape: {sample_batch['input_ids'].shape}")
+    logger.info("Testing single batch...")
+    try:
+        sample_batch = next(iter(dataloader))
+        logger.info("✅ Batch creation successful!")
+        logger.info(f"Batch keys: {sample_batch.keys()}")
+        logger.info(f"Pixel values shape: {sample_batch['pixel_values'].shape}")
+        logger.info(f"Input IDs shape: {sample_batch['input_ids'].shape}")
         
-    # except Exception as e:
-    #     logger.error(f"❌ Error: {e}")
-    #     return
-    
-    # Full training loop
-    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-5)
-    
-    logger.info("Starting training...")
-    for epoch in range(10):  # Reduced for testing
-        for step, batch in enumerate(dataloader):
-            try:
-                loss = manual_forward_pass(model, batch)
-                
-                if loss is not None:
-                    loss.backward()
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-                    optimizer.step()
-                    optimizer.zero_grad()
-                    
-                    logger.info(f"✅ Step {step}, Loss: {loss.item():.4f}")
-                else:
-                    logger.warning(f"⚠️ Step {step}, No loss returned")
-                
-                if step >= 2:  # Test just a few steps
-                    break
-                    
-            except Exception as e:
-                logger.error(f"❌ Step {step} failed: {e}")
-                break
+    #     # Test forward pass
+    #     if torch.cuda.is_available():
+    #         loss = manual_forward_pass(model, sample_batch)
+    #         if loss is not None:
+    #             logger.info(f"✅ Forward pass successful! Loss: {loss.item()}")
+    #         else:
+    #             logger.info("✅ Forward pass successful! (no loss returned)")
         
-        break
+    except Exception as e:
+        logger.error(f"❌ Error: {e}")
+        return
+    
+    # # Full training loop
+    # optimizer = torch.optim.AdamW(model.parameters(), lr=1e-5)
+    
+    # logger.info("Starting training...")
+    # for epoch in range(1):  # Reduced for testing
+    #     for step, batch in enumerate(dataloader):
+    #         try:
+    #             loss = manual_forward_pass(model, batch)
+                
+    #             if loss is not None:
+    #                 loss.backward()
+    #                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+    #                 optimizer.step()
+    #                 optimizer.zero_grad()
+                    
+    #                 logger.info(f"✅ Step {step}, Loss: {loss.item():.4f}")
+    #             else:
+    #                 logger.warning(f"⚠️ Step {step}, No loss returned")
+                
+    #             if step >= 2:  # Test just a few steps
+    #                 break
+                    
+    #         except Exception as e:
+    #             logger.error(f"❌ Step {step} failed: {e}")
+    #             break
+        
+    #     break
 
 if __name__ == "__main__":
     main()
