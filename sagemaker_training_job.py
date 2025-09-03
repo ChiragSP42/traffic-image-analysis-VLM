@@ -24,13 +24,12 @@ IMAGE_FOLDER = 'Daytime'
 huggingface_estimator = PyTorch(
     entry_point="image_text_training.py",      # Your training script name
     source_dir=".",                             # Directory containing the script and files
-    instance_type="ml.p3.2xlarge",              # GPU instance for training
+    instance_type="ml.g5.2xlarge",              # GPU instance for training
     instance_count=1,
     role=role,
-    transformers_version='4.49',
+    transformers_version='4.53.1',
     framework_version="2.0.1",
-    pytorch_version='2.5',
-    py_version='py310',
+    py_version='py312',
 )
 
 # Input data channels - specify S3 URI(s) where your data is
