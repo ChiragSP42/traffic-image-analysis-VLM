@@ -43,13 +43,17 @@ def load_image_from_s3(s3_uri: str) -> Image.Image:
     return img
 
 def build_conversation(text):
-    messages = []
-    with open('user_prompt.txt', 'r') as f:
-        user_prompt = f.read()
-    user_prompt = "<image>"
-    messages.append({"role": "user", "content": user_prompt})
-    messages.append({"role": "assistant", "content": text})
-    return {"messages": messages}
+    conversation = [
+        {
+            "role": "user", 
+            "content": "<image>\nDescribe this vehicle including its make, model, year, color, and any unique identifiers you can see."
+        },
+        {
+            "role": "assistant", 
+            "content": text
+        }
+    ]
+    return {"messages": conversation}
 
 class ManualImageTextDataset(Dataset):
     def __init__(self, s3_bucket: str, json_file: str):
@@ -82,21 +86,23 @@ class ManualCollator:
     def __init__(self, processor):
         self.processor = processor
 
-    def __call__(self, batch: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
+    def __call__(self, batch: List[Dict[str, Any]]):
         images = [b['image'] for b in batch]
         texts = [b['conversation']['messages'] for b in batch]
         
-        processed = self.processor(
-            images=images,
-            text=texts,
-            padding='max_length',
-            truncation=True,
-            return_tensors='pt'
-        )
-
-        logger.debug(type(processed))
+        prs = []
+        for image, text in zip(images, texts):
+            processed = self.processor(
+                images=image,
+                text=text,
+                padding='max_length',
+                truncation=True,
+                return_tensors='pt'
+            )
+            prs.append(processed)
         
-        return {k: v for k, v in processed.items()}
+        return prs
+        # return {k: v for k, v in processed.items()}
 
 # Manual forward pass function
 def manual_forward_pass(model, batch):
@@ -135,19 +141,16 @@ def main():
     collator = ManualCollator(processor)
     
     logger.info("Creating dataloader")
-    dataloader = DataLoader(dataset, batch_size=1, collate_fn=collator, shuffle=True)
+    dataloader = DataLoader(dataset, batch_size=2, collate_fn=collator, shuffle=True)
     
     # Test single batch first
     logger.info("Testing single batch...")
-    try:
-        sample_batch = next(iter(dataloader))
-        logger.info("✅ Batch creation successful!")
-        logger.info(f"Batch keys: {sample_batch.keys()}")
-        logger.info(f"Pixel values shape: {sample_batch['pixel_values'].shape}")
-        logger.info(f"Input IDs shape: {sample_batch['input_ids'].shape}")
+    sample_batch = next(iter(dataloader))
+    logger.info("✅ Batch creation successful!")
+    logger.info(f"Batch keys: {sample_batch.keys()}")
+    logger.info(f"Pixel values shape: {sample_batch['pixel_values'].shape}")
+    logger.info(f"Input IDs shape: {sample_batch['input_ids'].shape}")
         
-    except Exception as e:
-        logger.error(f"❌ Error: {e}")
     
     # Full training loop
     # optimizer = torch.optim.AdamW(model.parameters(), lr=1e-5)
